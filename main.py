@@ -11,6 +11,7 @@ import imgaug
 from torch.utils.tensorboard import SummaryWriter
 import torch
 import torch.utils.data as data
+import torch.backends.cudnn as cudnn
 import torchvision
 
 from augment import make_augmenters
@@ -23,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger('darkmatter')
 parser = argparse.ArgumentParser(description='Pattern recognition')
 parser.add_argument(
-    '-b', '--batch-size', default=128, type=int, help='mini-batch size')
+    '-b', '--batch-size', default=32, type=int, help='mini-batch size')
 parser.add_argument(
     '-j', '--workers', default=4, type=int, metavar='N',
     help='number of data loading workers')
@@ -31,10 +32,21 @@ parser.add_argument(
     '--epochs', default=200, type=int, metavar='N',
     help='number of total epochs to run')
 parser.add_argument(
+    '--seed', default=None, type=int,
+    help='seed for initializing the random number generator')
+parser.add_argument(
     '--input', default='../input', metavar='DIR', help='input directory')
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-logger.info('Running on %s', device)
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+    img_size = 256
+    logger.info('Running on GPU')
+else:
+    device = torch.device('cpu')
+    img_size = 64
+    logger.warning(
+        'Running on CPU. Images will be resized to %dx%d. '
+        'This will affect classification accuracy.', img_size, img_size)
 
 class SkyDataset(data.Dataset):
 
@@ -53,7 +65,7 @@ class SkyDataset(data.Dataset):
 
     def __getitem__(self, index):
         img = cv2.imread(self.files[index])
-        img = cv2.resize(img, (256, 256))
+        img = cv2.resize(img, (img_size, img_size))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         if self.transform:
             img = self.transform.augment_image(img)
@@ -98,6 +110,10 @@ def worker_init_fn(worker_id):
 
 def main():
     args = parser.parse_args()
+    if args.seed is not None:
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        cudnn.deterministic = True
     input_dir = args.input
     model = torchvision.models.__dict__[hp.arch](pretrained=hp.pretrained)
     # add a new output layer

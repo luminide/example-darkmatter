@@ -5,7 +5,7 @@ def make_augmenters():
     sometimes = lambda aug: iaa.Sometimes(hp.aug_prob, aug)
     aug_list = [
         sometimes(iaa.Affine(rotate=(-20, 20), mode='symmetric')),
-        iaa.CropToFixedSize(width=hp.crop_size, height=hp.crop_size),
+        iaa.Crop(percent=hp.crop_percent),
         iaa.SomeOf(
             (0, hp.aug_count), [
                 iaa.Fliplr(0.5),
@@ -37,7 +37,7 @@ def make_augmenters():
     train_aug = iaa.Sequential(aug_list)
 
     test_aug = iaa.Sequential([
-        iaa.CenterCropToFixedSize(width=hp.crop_size, height=hp.crop_size),
+        iaa.Crop(percent=hp.crop_percent),
     ])
 
     return train_aug, test_aug
