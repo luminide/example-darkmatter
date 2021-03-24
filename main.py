@@ -7,6 +7,7 @@ from datetime import datetime
 import cv2
 import numpy as np
 import imgaug
+import multiprocessing as mp
 
 from torch.utils.tensorboard import SummaryWriter
 import torch
@@ -26,7 +27,7 @@ parser = argparse.ArgumentParser(description='Pattern recognition')
 parser.add_argument(
     '-b', '--batch-size', default=32, type=int, help='mini-batch size')
 parser.add_argument(
-    '-j', '--workers', default=4, type=int, metavar='N',
+    '-j', '--workers', default=mp.cpu_count(), type=int, metavar='N',
     help='number of data loading workers')
 parser.add_argument(
     '--epochs', default=200, type=int, metavar='N',
