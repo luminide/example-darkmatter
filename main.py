@@ -147,6 +147,7 @@ def main():
         writer.add_scalar('validation accuracy', acc, epoch)
         print(f'Epoch {epoch + 1}: training loss {loss.item():.4f}'
               f' validation accuracy {acc:.2f}%')
+        writer.flush()
 
     state = {
         'epoch': epoch, 'model': model.state_dict(),
