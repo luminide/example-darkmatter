@@ -15,7 +15,7 @@ def plot_images(images, labels, output, input_dir):
     num_rows = (num_images + num_cols - 1) // num_cols
     preds = output.argmax(axis=1)
     probs = [100*F.softmax(el, dim=0)[i] for i, el in zip(preds, output)]
-    lenses = pd.read_csv(os.path.join(input_dir, 'validation-lenses.csv'))
+    lenses = pd.read_csv(os.path.join(input_dir, 'test-lenses.csv'))
 
     # plot the images, along with predicted and true labels
     fig = plt.figure(figsize=(10, num_images))
@@ -25,7 +25,7 @@ def plot_images(images, labels, output, input_dir):
         npimg = np.uint8(img.numpy().round())
         plt.imshow(np.transpose(npimg, (1, 2, 0)))
         # mark the center of the lens objects
-        lens = lenses[lenses['sky-id'] == idx]
+        lens = lenses[lenses['image_id'] == idx]
         if lens.shape[0] != 0:
             y = lens['row'].iloc[0]*img.shape[1]/512
             x = lens['column'].iloc[0]*img.shape[2]/512

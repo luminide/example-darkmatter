@@ -6,6 +6,7 @@ from glob import glob
 from datetime import datetime
 import cv2
 import numpy as np
+import pandas as pd
 import imgaug
 import multiprocessing as mp
 
@@ -54,15 +55,11 @@ class SkyDataset(data.Dataset):
     def __init__(self, input_dir, set_name, transform=None):
         self.set_name = set_name
         self.transform = transform
-        file_pattern = os.path.join(
-            input_dir, self.set_name, '*.png')
-        self.files = sorted(glob(file_pattern))
+        meta_file = os.path.join(input_dir, set_name + '.csv')
+        meta = pd.read_csv(meta_file).values
+        self.labels = meta[:, 1]
+        self.files = [os.path.join(input_dir, set_name, f) for f in meta[:, 0]]
         self.len = len(self.files)
-        labels_file = os.path.join(
-            input_dir, set_name + '-labels.csv')
-        class_labels = np.loadtxt(
-            labels_file, delimiter=',', skiprows=1, dtype=int)
-        self.labels = class_labels[:, 1]
 
     def __getitem__(self, index):
         img = cv2.imread(self.files[index])
@@ -127,12 +124,12 @@ def main():
 
     # data loading code
     train_aug, test_aug = make_augmenters()
-    train_dataset = SkyDataset(input_dir, 'training', train_aug)
+    train_dataset = SkyDataset(input_dir, 'train', train_aug)
     train_loader = data.DataLoader(
         train_dataset, batch_size=args.batch_size,
         num_workers=args.workers, worker_init_fn=worker_init_fn)
 
-    val_dataset = SkyDataset(input_dir, 'validation', test_aug)
+    val_dataset = SkyDataset(input_dir, 'test', test_aug)
     val_loader = data.DataLoader(
         val_dataset, batch_size=args.batch_size, num_workers=args.workers)
 
