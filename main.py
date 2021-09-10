@@ -52,7 +52,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logger.info('Running on %s', device)
 
 
-def train(loader, model, optimizer, epoch):
+def train(loader, model, optimizer, epoch, history):
     loss_func = nn.BCEWithLogitsLoss()
     sigmoid = nn.Sigmoid()
 
@@ -72,10 +72,12 @@ def train(loader, model, optimizer, epoch):
 
         if i % skip_interval == 0:
             # skip this minibatch while tuning
+            history.append([epoch, i, np.nan, loss.item()])
             loss_sums[1] += loss.item()
             batch_counts[1] += 1
             continue
 
+        history.append([epoch, i, loss.item(), np.nan])
         probs = sigmoid(outputs).data.cpu().numpy()
         preds = probs.round()
         loss_sums[0] += loss.item()
@@ -118,11 +120,13 @@ def main(args_list):
 
     conf_file = f'config.yaml'
     if os.path.exists(conf_file):
-        print(f'Loading {conf_file}')
+        logger.info(f'loading {conf_file}')
         # read in hyperparameter values suggested by the bayes optimizer
         with open(conf_file) as fd:
             updates = yaml.safe_load(fd)
         conf.update(updates)
+    else:
+        logger.info('using default config')
     logger.info(conf.get())
     model = ModelWrapper(NUM_CLASSES, conf)
     model = model.to(device)
@@ -144,9 +148,10 @@ def main(args_list):
     writer = SummaryWriter()
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=conf.gamma)
     best_loss = None
+    history = []
     for epoch in range(args.epochs):
         # train for one epoch
-        train_loss, val_loss = train(train_loader, model, optimizer, epoch)
+        train_loss, val_loss = train(train_loader, model, optimizer, epoch, history)
         scheduler.step()
         writer.add_scalar('training loss', train_loss, epoch)
         writer.add_scalar('validation loss', val_loss, epoch)
@@ -163,6 +168,8 @@ def main(args_list):
             }
             torch.save(state, 'model.pth')
 
+    df = pd.DataFrame(history, columns=['epoch', 'iter', 'train_loss', 'val_loss'])
+    df.to_csv('history.csv')
     writer.close()
     make_report(model, train_loader, input_dir)
 
