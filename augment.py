@@ -1,43 +1,50 @@
-from imgaug import augmenters as iaa
-import hp
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+import cv2
 
-def make_augmenters():
-    sometimes = lambda aug: iaa.Sometimes(hp.aug_prob, aug)
+def make_augmenters(conf):
+    p = conf.aug_prob
     aug_list = [
-        sometimes(iaa.Affine(rotate=(-20, 20), mode='symmetric')),
-        iaa.Crop(percent=hp.crop_percent),
-        iaa.SomeOf(
-            (0, hp.aug_count), [
-                iaa.Fliplr(0.5),
-                iaa.Flipud(0.5),
-                sometimes(iaa.AddToHueAndSaturation(value=(-10, 10))),
-                iaa.GaussianBlur((0, 3.0)),
-            ],
-            random_order=True
-        )
+        A.ShiftScaleRotate(
+            shift_limit=0.0625, scale_limit=0.2, rotate_limit=25,
+            interpolation=cv2.INTER_AREA, p=p),
+        A.RandomCrop(height=conf.crop_height, width=conf.crop_width, always_apply=True),
+        A.Flip(p=0.5*p),
+        A.OneOf([
+            A.MotionBlur(p=0.2*p),
+            A.MedianBlur(blur_limit=3, p=0.1*p),
+            A.Blur(blur_limit=3, p=0.1*p),
+        ], p=0.2*p),
+        A.Perspective(p=0.2*p),
     ]
 
-    if hp.strong_aug:
-        aug_list.append(
-            iaa.SomeOf(
-                (0, hp.aug_count), [
-                    iaa.Sharpen(alpha=(0, 1.0), lightness=(0.75, 1.5)),
-                    iaa.Emboss(alpha=(0, 1.0), strength=(0, 2.0)),
-                    iaa.AdditiveGaussianNoise(
-                        loc=0, scale=(0.0, 0.05*255), per_channel=0.5),
-                    iaa.Invert(0.05, per_channel=True),
-                    iaa.Add((-10, 10), per_channel=0.5),
-                    iaa.LinearContrast((0.5, 2.0), per_channel=0.5),
-                    iaa.Grayscale(alpha=(0.0, 1.0)),
-                    sometimes(iaa.ElasticTransformation(alpha=(0.5, 3.5)))
-                ],
-                random_order=True
-            )
-        )
-    train_aug = iaa.Sequential(aug_list)
+    if conf.strong_aug:
+        aug_list.extend([
+            A.GaussNoise(p=0.2*p),
+            A.OneOf([
+                A.OpticalDistortion(p=0.3*p),
+                A.GridDistortion(p=0.1*p),
+                A.PiecewiseAffine(p=0.3*p),
+            ], p=0.2*p),
+            A.OneOf([
+                A.CLAHE(clip_limit=2, p=0.2*p),
+                A.Sharpen(p=0.2*p),
+                A.Emboss(p=0.2*p),
+                A.RandomBrightnessContrast(p=0.2*p),
+            ], p=0.3*p),
+        ])
 
-    test_aug = iaa.Sequential([
-        iaa.Crop(percent=hp.crop_percent),
+    aug_list.extend([
+            A.Normalize(),
+            ToTensorV2()
+    ])
+
+    train_aug = A.Compose(aug_list)
+    test_aug = A.Compose([
+        A.CenterCrop(height=conf.crop_height, width=conf.crop_width),
+        A.Normalize(),
+        ToTensorV2()
     ])
 
     return train_aug, test_aug
+

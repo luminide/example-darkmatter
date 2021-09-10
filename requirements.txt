@@ -1,7 +1,7 @@
-pandas==1.1.4
-torchvision==0.8.1
-imgaug==0.4.0
-torch==1.7.0
-opencv_python==4.4.0.46
-matplotlib==3.3.3
-numpy==1.19.4
+pandas
+torchvision
+albumentations
+torch
+opencv_python
+matplotlib
+numpy
