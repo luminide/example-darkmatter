@@ -12,4 +12,7 @@
 #  - This script will be run from your output directory
 #  - Imported Data is accessible via the relative path ../input/
 
-python3 ../code/main.py --seed 0 --epochs 10
+
+export TF_CPP_MIN_LOG_LEVEL=2
+
+python3 ../code/main.py --epochs 10 -b 16 --seed 0
