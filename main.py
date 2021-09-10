@@ -1,5 +1,6 @@
 import argparse
 import os
+import yaml
 import logging
 import random
 import cv2
@@ -115,6 +116,13 @@ def main(args_list):
     else:
         conf = Config(hp_dict)
 
+    conf_file = f'config.yaml'
+    if os.path.exists(conf_file):
+        print(f'Loading {conf_file}')
+        # read in hyperparameter values suggested by the bayes optimizer
+        with open(conf_file) as fd:
+            updates = yaml.safe_load(fd)
+        conf.update(updates)
     logger.info(conf.get())
     model = ModelWrapper(NUM_CLASSES, conf)
     model = model.to(device)
