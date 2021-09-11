@@ -1,3 +1,3 @@
 #!/bin/bash 
 
-python3 ../code/main.py --epochs 3 -b 8 --seed 0
+python3 ../code/main.py --epochs 3 -b 4 --seed 0
