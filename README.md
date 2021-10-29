@@ -60,7 +60,7 @@ Instructions for using the sample code is given below:
 
     ```
     cd ../output
-    ../code/main.sh
+    ../code/full.sh
     ```
 
 The validation accuracy is calculated and displayed for every epoch. Once the script finishes, there should be an image similar to the one shown below that shows the predictions and their confidence levels for a sample of images from the validation set.
