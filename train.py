@@ -112,14 +112,15 @@ class Trainer:
         writer = SummaryWriter()
         for epoch in range(epochs):
             # train for one epoch
-            train_loss, val_loss = self.train_epoch(epoch, history)
+            train_loss = self.train_epoch(epoch, history)
+            val_loss, val_acc = self.val_epoch()
             self.scheduler.step()
             writer.add_scalar('training loss', train_loss, epoch)
             writer.add_scalar('validation loss', val_loss, epoch)
             writer.flush()
             print(
                 f'Epoch {epoch + 1}: training loss {train_loss:.4f} '
-                f' validation loss {val_loss:.4f}')
+                f' validation loss {val_loss:.4f} validation accuracy {val_acc:.2f}%')
             if best_loss is None or val_loss < best_loss:
                 best_loss = val_loss
                 state = {
@@ -153,7 +154,8 @@ class Trainer:
                         val_images, val_labels = next(val_iter)
                         val_images = val_images.to(device)
                         val_labels = val_labels.to(device)
-                        val_outputs = model(val_images)
+                        with autocast(enabled=self.use_amp):
+                            val_outputs = model(val_images)
                         val_loss = loss_func(val_outputs, val_labels)
                         history.append([epoch, step, np.nan, val_loss.item()])
                         val_loss_list.append(val_loss.item())
@@ -185,8 +187,23 @@ class Trainer:
             optimizer.zero_grad()
 
         mean_train_loss = np.array(train_loss_list).mean()
-        mean_val_loss = np.array(val_loss_list).mean()
-        return mean_train_loss, mean_val_loss
+        return mean_train_loss
+
+    def val_epoch(self):
+        loss_func = nn.BCEWithLogitsLoss()
+        losses = []
+        correct = 0
+        self.model.eval()
+        for images, labels in self.val_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            with autocast(enabled=self.use_amp):
+                outputs = self.model(images)
+            preds = outputs.argmax(axis=1)
+            correct += (preds == labels[:, 1]).sum()
+            losses.append(loss_func(outputs, labels).item())
+        accuracy = correct*100./len(self.val_loader.dataset)
+        return np.mean(losses), accuracy
 
     def make_report(self, loader):
         images, labels = iter(loader).next()
