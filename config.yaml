@@ -8,10 +8,11 @@ image_size: 128
 crop_size: 0.8
 
 # optimizer settings
+optim: sgd
 lr: 0.001
-batch_size: 64
+batch_size: 32
 
 # scheduler settings
-gamma: 0.96
+gamma: 0.99
 aug_prob: 0.1
 strong_aug: false
