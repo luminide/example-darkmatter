@@ -2,8 +2,14 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import cv2
 
-def make_augmenters(conf):
+def make_train_augmenter(conf):
     p = conf.aug_prob
+    if p <= 0:
+        return A.Compose([
+            A.Normalize(),
+            ToTensorV2()
+        ])
+
     crop_size = round(conf.image_size*conf.crop_size)
     aug_list = [
         A.ShiftScaleRotate(
@@ -36,16 +42,10 @@ def make_augmenters(conf):
         ])
 
     aug_list.extend([
-            A.Normalize(),
-            ToTensorV2()
-    ])
-
-    train_aug = A.Compose(aug_list)
-    test_aug = A.Compose([
-        A.CenterCrop(height=crop_size, width=crop_size),
         A.Normalize(),
         ToTensorV2()
     ])
 
-    return train_aug, test_aug
+    return A.Compose(aug_list)
+
 

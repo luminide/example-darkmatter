@@ -1,17 +1,19 @@
 parameters:
   arch:
-    values: ['resnet18', 'resnet50', 'seresnext50_32x4d']
-  pretrained:
-    values: [True, False]
+    values: ['resnet18', 'resnet50', 'efficientnet_b3', 'seresnext50_32x4d']
+  optim:
+    values: ['sgd', 'adam']
   lr:
     distribution: log_uniform
     min: 0.0001
     max: 0.01
   image_size:
-    values: [128, 256]
+    values: [64, 128, 256, 320, 384, 400]
   crop_size:
-    values: [0.8, 0.96, 1.0]
+    values: [0.8, 0.9, 0.96]
   aug_prob:
-    values: [0.01, 0.1, 0.8]
+    distribution: uniform
+    min: 0.0
+    max: 0.95
   strong_aug:
     values: [True, False]

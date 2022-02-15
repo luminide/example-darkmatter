@@ -2,9 +2,10 @@ import os
 import argparse
 import random
 import multiprocessing as mp
+from datetime import datetime
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from sklearn.metrics import f1_score
 
 import torch.backends.cudnn as cudnn
 from torch.utils.tensorboard import SummaryWriter
@@ -13,21 +14,20 @@ from torch import nn
 import torch.utils.data as data
 from torch.cuda.amp import GradScaler, autocast
 
-from augment import make_augmenters
+from augment import make_train_augmenter
 from dataset import VisionDataset
 from models import ModelWrapper
 from config import Config
 from report import plot_images
+from util import get_class_names, make_test_augmenter
 
-
-NUM_CLASSES = 2
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '-j', '--num-workers', default=mp.cpu_count(), type=int, metavar='N',
     help='number of data loading workers')
 parser.add_argument(
-    '--epochs', default=50, type=int, metavar='N',
+    '--epochs', default=40, type=int, metavar='N',
     help='number of total epochs to run')
 parser.add_argument(
     '-p', '--print-interval', default=100, type=int,
@@ -49,58 +49,71 @@ print(f'Running on {device}')
 
 class Trainer:
     def __init__(
-            self, model, conf, input_dir, device, num_workers,
+            self, conf, input_dir, device, num_workers,
             checkpoint, print_interval, quick=False):
-        self.model = model
         self.conf = conf
         self.input_dir = input_dir
         self.device = device
         self.max_patience = 10
         self.print_interval = print_interval
-        self.optimizer = torch.optim.AdamW(
-            model.parameters(), conf.lr)
-        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
-            self.optimizer, gamma=conf.gamma)
         self.use_amp = torch.cuda.is_available()
         if self.use_amp:
             self.scaler = GradScaler()
 
+        self.create_dataloaders(num_workers, quick)
+
+        self.model = ModelWrapper(conf, self.num_classes)
+        self.model = self.model.to(device)
+        self.optimizer = self.create_optimizer(conf, self.model)
+        assert  self.optimizer is not None, f'Unknown optimizer {conf.optim}'
         if checkpoint:
             self.model.load_state_dict(checkpoint['model'])
             self.optimizer.load_state_dict(checkpoint['optimizer'])
-
-        # data loading code
-        self.create_dataloaders(num_workers, quick)
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            self.optimizer, gamma=conf.gamma)
 
     def create_dataloaders(self, num_workers, quick):
         conf = self.conf
         meta_file = os.path.join(self.input_dir, 'train.csv')
-        meta_df = pd.read_csv(meta_file)
+        assert os.path.exists(meta_file), f'{meta_file} not found on Compute Server'
+        df = pd.read_csv(meta_file, dtype=str)
+        class_names = get_class_names(df)
+        self.num_classes = len(class_names)
+
         # shuffle
-        meta_df = meta_df.sample(frac=1, random_state=0).reset_index(drop=True)
-        train_aug, test_aug = make_augmenters(conf)
+        df = df.sample(frac=1, random_state=0).reset_index(drop=True)
+        train_aug = make_train_augmenter(conf)
+        test_aug = make_test_augmenter(conf)
 
         # split into train and validation sets
-        split = meta_df.shape[0]*80//100
-        train_df = meta_df.iloc[:split].reset_index(drop=True)
-        val_df = meta_df.iloc[split:].reset_index(drop=True)
+        split = df.shape[0]*80//100
+        train_df = df.iloc[:split].reset_index(drop=True)
+        val_df = df.iloc[split:].reset_index(drop=True)
         train_dataset = VisionDataset(
-            train_df, conf, self.input_dir, 'train',
-            NUM_CLASSES, train_aug, training=True, quick=quick)
+            train_df, conf, self.input_dir, 'train_images',
+            class_names, train_aug, quick=quick)
         val_dataset = VisionDataset(
-            val_df, conf, self.input_dir, 'train',
-            NUM_CLASSES, test_aug, training=False)
+            val_df, conf, self.input_dir, 'train_images',
+            class_names, test_aug, quick=quick)
         print(f'{len(train_dataset)} examples in training set')
         print(f'{len(val_dataset)} examples in validation set')
-        drop_last = True if len(train_dataset) % conf.batch_size == 1 else False
-        # FIXME: set pin_memory to True when spurious warnings are fixed in pytorch
+        drop_last = (len(train_dataset) % conf.batch_size) == 1
         self.train_loader = data.DataLoader(
             train_dataset, batch_size=conf.batch_size, shuffle=True,
-            num_workers=num_workers, pin_memory=False,
+            num_workers=num_workers, pin_memory=True,
             worker_init_fn=worker_init_fn, drop_last=drop_last)
         self.val_loader = data.DataLoader(
             val_dataset, batch_size=conf.batch_size, shuffle=False,
-            num_workers=num_workers, pin_memory=False)
+            num_workers=num_workers, pin_memory=True)
+
+    def create_optimizer(self, conf, model):
+        if conf.optim == 'sgd':
+            return torch.optim.SGD(
+                model.parameters(), lr=conf.lr, momentum=0.9,
+                weight_decay=0.01, nesterov=True)
+        if conf.optim == 'adam':
+            return torch.optim.AdamW(model.parameters(), lr=conf.lr)
+        return None
 
     def fit(self, epochs):
         best_loss = None
@@ -116,21 +129,21 @@ class Trainer:
         for epoch in range(epochs):
             # train for one epoch
             train_loss = self.train_epoch(epoch, history)
-            val_loss, val_acc = self.val_epoch()
+            val_loss, val_score = self.val_epoch()
             self.scheduler.step()
-            writer.add_scalar('training loss', train_loss, epoch)
-            writer.add_scalar('validation loss', val_loss, epoch)
-            writer.add_scalar('validation accuracy', val_acc, epoch)
+            writer.add_scalar('Training loss', train_loss, epoch)
+            writer.add_scalar('Validation loss', val_loss, epoch)
+            writer.add_scalar('Validation F1 score', val_score, epoch)
             writer.flush()
             print(f'Epoch {epoch + 1}: training loss {train_loss:.5f}')
-            print(f'Epoch {epoch + 1}: validation loss {val_loss:.5f} validation accuracy {val_acc:.2f}%')
+            print(f'Validation F1 score {val_score:.2f} loss {val_loss:.5f}\n')
             history.append([epoch, -1, np.nan, np.nan, val_loss])
             if best_loss is None or val_loss < best_loss:
                 best_loss = val_loss
                 state = {
                     'epoch': epoch, 'model': self.model.state_dict(),
                     'optimizer' : self.optimizer.state_dict(),
-                    'conf': self.conf.get()
+                    'conf': self.conf.as_dict()
                 }
                 torch.save(state, 'model.pth')
                 patience = self.max_patience
@@ -138,11 +151,12 @@ class Trainer:
                 patience -= 1
                 if patience == 0:
                     print(
-                        f'validation loss did not improve for '
+                        f'Validation loss did not improve for '
                         f'{self.max_patience} epochs')
                     break
 
-        df = pd.DataFrame(history, columns=['epoch', 'iter', 'train_loss', 'val_loss', 'epoch_val_loss'])
+        df = pd.DataFrame(
+            history, columns=['epoch', 'iter', 'train_loss', 'val_loss', 'epoch_val_loss'])
         df.to_csv('history.csv')
         writer.close()
         self.make_report(self.train_loader)
@@ -154,6 +168,7 @@ class Trainer:
 
         val_iter = iter(self.val_loader)
         val_interval = len(self.train_loader)//len(self.val_loader)
+        assert val_interval > 0
         train_loss_list = []
         val_loss_list = []
         model.train()
@@ -187,7 +202,7 @@ class Trainer:
             train_loss_list.append(loss.item())
             history.append([epoch, step, loss.item(), np.nan, np.nan])
             if (step + 1) % self.print_interval == 0:
-                print(f'batch {step + 1}: training loss {loss.item():.5f}')
+                print(f'Batch {step + 1}: training loss {loss.item():.5f}')
             # compute gradient and do SGD step
             if self.use_amp:
                 self.scaler.scale(loss).backward()
@@ -203,29 +218,33 @@ class Trainer:
 
     def val_epoch(self):
         loss_func = nn.BCEWithLogitsLoss()
+        sigmoid = nn.Sigmoid()
         losses = []
-        preds = np.zeros(len(self.val_loader.dataset), dtype=np.int32)
+        all_labels = np.zeros(
+            (len(self.val_loader.dataset), self.num_classes), dtype=np.float32)
+        preds = np.zeros_like(all_labels)
         start_idx = 0
         self.model.eval()
-        for images, labels in self.val_loader:
-            images = images.to(device)
-            labels = labels.to(device)
-            with autocast(enabled=self.use_amp):
-                outputs = self.model(images)
-            end_idx = start_idx + outputs.shape[0]
-            preds[start_idx:end_idx] = outputs.argmax(axis=1).cpu().numpy()
-            start_idx = end_idx
-            losses.append(loss_func(outputs, labels).item())
-        categories = self.val_loader.dataset.get_categories()
-        correct = (preds == categories).sum()
-        accuracy = correct*100./len(self.val_loader.dataset)
-        return np.mean(losses), accuracy
+        with torch.no_grad():
+            for images, labels in self.val_loader:
+                images = images.to(device)
+                labels = labels.to(device)
+                with autocast(enabled=self.use_amp):
+                    outputs = self.model(images)
+                end_idx = start_idx + outputs.shape[0]
+                all_labels[start_idx:end_idx] = labels.cpu().numpy()
+                preds[start_idx:end_idx] = sigmoid(outputs).round().cpu().numpy()
+                start_idx = end_idx
+                losses.append(loss_func(outputs, labels).item())
+
+        score = f1_score(all_labels, preds, average='micro')
+        return np.mean(losses), score
 
     def make_report(self, loader):
         images, labels = iter(loader).next()
         with torch.no_grad():
             outputs = self.model(images.to(device)).cpu()
-        plot_images(images, labels, outputs, self.input_dir)
+        plot_images(images, labels, outputs)
 
 
 def worker_init_fn(worker_id):
@@ -254,11 +273,8 @@ def main(args_list):
         conf = Config()
 
     print(conf)
-    model = ModelWrapper(NUM_CLASSES, conf)
-    model = model.to(device)
-
     trainer = Trainer(
-        model, conf, input_dir, device, args.num_workers,
+        conf, input_dir, device, args.num_workers,
         checkpoint, args.print_interval, quick=args.quick)
     trainer.fit(args.epochs)
 
