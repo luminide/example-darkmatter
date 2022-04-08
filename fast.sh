@@ -1,3 +1,3 @@
 #!/bin/bash
 
-python3 ../code/train.py --epochs 3 --seed 0 --subset 10
+python3 ../code/train.py --epochs 10 --subset 50

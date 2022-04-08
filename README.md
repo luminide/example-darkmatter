@@ -34,16 +34,15 @@ If an item has multiple labels, they should be separated by a space character as
 - For exploratory analysis, run [eda.ipynb](eda.ipynb).
 - To train, use the `Run Experiment` menu.
 - To monitor training progress, use the `Experiment Visualization` menu.
-- To tune the hyperparameters, edit [sweep.yaml](sweep.yaml) as desired and launch a sweep from the `Run Experiment` tab.
+- To generate a report on the most recent training session, run report.sh from the `Run Experiment` tab. Make sure `Track Experiment` is checked. The results will be copied back to a file called `report.html`.
+- To tune the hyperparameters, edit [sweep.yaml](sweep.yaml) as desired and launch a sweep from the `Run Experiment` tab. Tuned values will be copied back to a file called `config-tuned.yaml` along with visualizations in `sweep-results.html`.
 - After an experiment is complete, use the file browser on the IDE interface to access the results on the IDE Server.
 - Use the `Experiment Tracking` menu to track experiments.
 
+Note: As configured, the code trains on 50% of the data. To train on the entire dataset, edit `full.sh` and `fast.sh` to remove the `--subset` command line parameter so that the default value of 100 is used.
 
 
-Note: As configured, the code trains on 10% of the data. To train on the entire dataset, edit `full.sh` and `fast.sh` to remove the `--subset` command line parameter so that the default value of 100 is used.
-
-
-For more detailed documentation, see the [Luminide Tutorial](https://docs.luminide.com/docs/tutorial)
+For more details on usage, see [Luminide documentation](https://luminide.readthedocs.io)
 
 # Detecting dark matter
 
